@@ -1,0 +1,55 @@
+version: 0.2
+
+# Run when main branch is pushed. Build and deploy to staging environment.
+
+phases:
+  pre_build:
+    commands:
+      # Always use us-east-1 region. https://docs.aws.amazon.com/AmazonECR/latest/public/public-registries.html#public-registry-auth
+      # driver needs to be docker-container for buildx to export/import cache on host.
+      - docker buildx create --driver=docker-container --use
+      # Install terraform
+      - sudo yum install -y yum-utils
+      - sudo yum-config-manager --add-repo https://rpm.releases.hashicorp.com/AmazonLinux/hashicorp.repo
+      - sudo yum -y install terraform
+  build:
+    commands:
+      # NOTE: semgrep exit codes: https://semgrep.dev/docs/cli-reference#exit-codes
+      - |
+        docker run -it -v "${PWD}:/src" -w /src semgrep/semgrep \
+          semgrep scan \
+          --junit-xml-output=reports/semgrep.out.xml | exit 0
+      # Deploy infrastructure.
+      - terraform -chdir=./terraform/web/ init
+      - terraform -chdir=./terraform/web/ workspace select -or-create staging
+      - terraform -chdir=./terraform/web/ apply -auto-approve -var-file='config/staging.tfvars' -var="update_cicd=false"
+      # Build static website.
+      - |
+        docker buildx build \
+          --build-arg BUILDKIT_SYNTAX=docker/dockerfile:1 \
+          --target builder \
+          --cache-to type=local,dest=frontend/docker-cache \
+          --cache-from type=local,src=frontend/docker-cache \
+          --load \
+          -t myproject-web-builder \
+          -f frontend/Dockerfile \
+          ./frontend/myproject-web
+      - docker cp $(docker create myproject-web-builder):/app/out/ ./frontend/myproject-web/out/
+      - aws s3 sync ./frontend/myproject-web/out/ s3://$(terraform -chdir=./terraform/web/ output -raw frontend_s3_bucket_name)/ --delete
+      - aws cloudfront create-invalidation --distribution-id $(terraform -chdir=./terraform/web/ output -raw frontend_cloudfront_distribution_id) --paths "/*"
+  post_build:
+    commands:
+      # TODO: DAST
+      - echo "Build completed on `date`"
+
+cache:
+  paths:
+    - "frontend/docker-cache/**/*"
+
+artifacts:
+  files:
+    # The output will a zip file that contains all files in the following path.
+    - frontend/myproject-web/out/**/*
+    - .codebuild/**/*
+    - terraform/**/*
+  name: myproject-web

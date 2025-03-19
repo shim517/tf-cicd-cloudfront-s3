@@ -1,0 +1,38 @@
+version: 0.2
+
+# Run when main branch is pushed and manual approval is accepted.
+
+phases:
+  pre_build:
+    commands:
+      # Always use us-east-1 region. https://docs.aws.amazon.com/AmazonECR/latest/public/public-registries.html#public-registry-auth
+      # driver needs to be docker-container for buildx to export/import cache on host.
+      - docker buildx create --driver=docker-container --use
+      # Install terraform
+      - sudo yum install -y yum-utils
+      - sudo yum-config-manager --add-repo https://rpm.releases.hashicorp.com/AmazonLinux/hashicorp.repo
+      - sudo yum -y install terraform
+  build:
+    commands:
+      # NOTE: codebuild-breakpoint doesn't pause the build process.
+      - codebuild-breakpoint
+      - ls
+      # Deploy infrastructure.
+      - terraform -chdir=./terraform/web/ init
+      - terraform -chdir=./terraform/web/ workspace select -or-create prod
+      - terraform -chdir=./terraform/web/ apply -auto-approve -var-file='config/prod.tfvars' -var="update_cicd=false"
+      # Use Source input as static website
+      - aws s3 sync ./frontend/myproject-web/out/ s3://$(terraform -chdir=./terraform/web/ output -raw frontend_s3_bucket_name)/ --delete
+      - aws cloudfront create-invalidation --distribution-id $(terraform -chdir=./terraform/web/ output -raw frontend_cloudfront_distribution_id) --paths "/*"
+  post_build:
+    commands:
+      - echo "Build completed on `date`"
+
+cache:
+  paths:
+    - "frontend/docker-cache/**/*"
+
+artifacts:
+  files:
+    - frontend/myproject-web/out/**/*
+  name: myproject-web
