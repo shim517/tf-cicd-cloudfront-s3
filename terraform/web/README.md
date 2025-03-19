@@ -1,7 +1,6 @@
 # Overview
 
 - Use `terraform workspace` to manage multiple environments.
-- Create a shared cicd pipeline for all environments.
 
 # Initialize
 

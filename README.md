@@ -27,3 +27,39 @@ Note:
 - Implements `terraform workspace` to manage multiple environments.
 - Combines `Project name` and `Stage name` as prefixes for resources to prevent name collisions between environments.
 - Utilizes an S3 bucket as cache storage for CodeBuild.
+
+# How to set up the CI/CD pipeline
+
+\* I run the following commands in AWS CloudShell.  
+
+1. Create S3 bucket and DynamoDB table for Terraform state.
+    ```bash
+    aws s3api create-bucket --bucket myproject-terraform-state-$(aws sts get-caller-identity --query Account --output text) --region ap-southeast-1 --create-bucket-configuration LocationConstraint=ap-southeast-1
+    aws dynamodb create-table --table-name myproject-terraform-state-lock --attribute-definitions AttributeName=LockID,AttributeType=S --key-schema AttributeName=LockID,KeyType=HASH --billing-mode PAY_PER_REQUEST
+    ```
+    The S3 bucket and DynamoDB table are used to store Terraform state files.
+2. Run the following commands to install Terraform.
+    ```bash
+    git clone https://github.com/tfutils/tfenv.git ~/.tfenv
+    mkdir ~/bin
+    ln -s ~/.tfenv/bin/* ~/bin/
+    tfenv install
+    tfenv use latest
+    terraform --version
+    ```
+    I chose to use `tfenv` to manage Terraform versions.
+3. Create the CI/CD pipeline.
+    ```bash
+    terraform -chdir=./terraform/cicd/ init
+    terraform -chdir=./terraform/cicd/ workspace select -or-create cicd
+    terraform -chdir=./terraform/cicd/ plan -var-file='config/cicd.tfvars'
+    terraform -chdir=./terraform/cicd/ apply -var-file='config/cicd.tfvars'
+    ```
+    It creates a shared CI/CD pipeline for all environments.  
+    Using workspace to isolate resources for CI/CD pipeline from the website resources.
+
+# How to deploy the website
+
+- You can deploy the website's infrastructure using the CI/CD pipeline just made in the previous step.
+- Once you update main branch, the CI/CD pipeline will automatically deploy the infrastructure for the website and the website itself on it.
+- See `.codebuild` folder for buildspec files used in the CI/CD pipeline.
