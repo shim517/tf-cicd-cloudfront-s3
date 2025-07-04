@@ -34,8 +34,10 @@ Note:
 
 1. Create S3 bucket and DynamoDB table for Terraform state.
     ```bash
-    aws s3api create-bucket --bucket myproject-terraform-state-$(aws sts get-caller-identity --query Account --output text) --region ap-southeast-1 --create-bucket-configuration LocationConstraint=ap-southeast-1
-    aws dynamodb create-table --table-name myproject-terraform-state-lock --attribute-definitions AttributeName=LockID,AttributeType=S --key-schema AttributeName=LockID,KeyType=HASH --billing-mode PAY_PER_REQUEST
+    PROJECT=  # your project name in lower case
+    AWS_REGION=   # your AWS region
+    aws s3api create-bucket --bucket $PROJECT-terraform-state-$(aws sts get-caller-identity --query Account --output text) --region $REGION --create-bucket-configuration LocationConstraint=$AWS_REGION
+    aws dynamodb create-table --table-name $PROJECT-terraform-state-lock --attribute-definitions AttributeName=LockID,AttributeType=S --key-schema AttributeName=LockID,KeyType=HASH --billing-mode PAY_PER_REQUEST
     ```
     The S3 bucket and DynamoDB table are used to store Terraform state files.
 2. Run the following commands to install Terraform.
